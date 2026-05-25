@@ -9,6 +9,7 @@ try:
         has_accessory_style_color,
         build_style_color_key,
         extract_colors_from_style_color_tokens,
+        detect_slide_category,
         get_accessory_price_context,
         extract_prices,
         extract_products_from_pptx,
@@ -41,6 +42,10 @@ try:
     colors = extract_colors_from_style_color_tokens("W NK DF VLCITY SL POLO IO1640-100 $30.00 WS | $60.00 RETAIL")
     assert colors == ["100"], f"Style-color token color extraction failed: {colors}"
     print(f"✓ Grid style-color token color: {colors[0]}")
+
+    category = detect_slide_category(["NIKE Global Sports Apparel", "WOMEN'S APPAREL", "Keep it Tight."])
+    assert category == "Women's Apparel", f"Category detection failed: {category}"
+    print(f"✓ Category detection: {category}")
     
     # Test price extraction with aggressive mode
     print("\n--- Testing price extraction ---")

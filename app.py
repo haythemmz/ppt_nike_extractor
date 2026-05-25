@@ -94,6 +94,7 @@ def compare_ppt_to_nike(style_colors: pd.DataFrame, nike_data: pd.DataFrame) -> 
 
     preferred_columns = [
         "slide_number",
+        "category",
         "product_name",
         "style_code",
         "color_code",
@@ -123,6 +124,7 @@ def filter_dataframe(df: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
 
     filter_columns = [
         ("slide_number", "Slide"),
+        ("category", "Category"),
         ("product_name", "Product name"),
         ("style_code", "Style code"),
         ("style_codes", "Style code"),

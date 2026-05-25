@@ -69,6 +69,20 @@ PRODUCT_KEYWORDS = {
     "DUFFEL", "DRAWSTRING", "FOOTIE", "NO-SHOW", "ANKLE", "TRAINING",
 }
 
+CATEGORY_PATTERNS: list[tuple[str, re.Pattern]] = [
+    ("Men's Apparel", re.compile(r"\bMEN'?S\s+APPAREL\b", re.I)),
+    ("Women's Apparel", re.compile(r"\bWOMEN'?S\s+APPAREL\b", re.I)),
+    ("Kids' Apparel", re.compile(r"\b(?:KIDS?|YOUTH|BOYS?|GIRLS?)\s+APPAREL\b", re.I)),
+    ("Apparel", re.compile(r"^APPAREL$", re.I)),
+    ("Bags", re.compile(r"\b(?:BAGS?|BACKPACKS?|DUFFELS?|DRAWSTRING)\b", re.I)),
+    ("Gloves", re.compile(r"\bGLOVES?\b", re.I)),
+    ("Headcovers", re.compile(r"\bHEAD\s*COVERS?\b|\bHEADCOVERS?\b", re.I)),
+    ("Footwear", re.compile(r"\bFOOTWEAR\b|\bSHOES?\b", re.I)),
+    ("Socks", re.compile(r"\bSOCKS?\b", re.I)),
+    ("Caps & Headwear", re.compile(r"\b(?:CAPS?|HATS?|HEADWEAR|VISORS?|BEANIES?)\b", re.I)),
+    ("Accessories", re.compile(r"\bACCESSORIES\b", re.I)),
+]
+
 
 # -----------------------------
 # Helper functions
@@ -100,6 +114,31 @@ def extract_style_color_pairs(text: str) -> list[tuple[str, str]]:
 
 def extract_colors_from_style_color_tokens(text: str) -> list[str]:
     return unique_preserve_order([color for _, color in extract_style_color_pairs(text)])
+
+
+def detect_slide_category(lines: list[str]) -> str | None:
+    """
+    Detect section divider/category slides such as WOMEN'S APPAREL or HEADCOVERS.
+    Product-heavy lines are ignored so product names do not accidentally reset category.
+    """
+    candidates = lines[:12]
+
+    for line in candidates:
+        line_clean = clean_text(line)
+        if not line_clean:
+            continue
+
+        if STYLE_RE.search(line_clean) or ACCESSORY_STYLE_COLOR_RE.search(line_clean):
+            continue
+
+        if looks_like_price_context(line_clean):
+            continue
+
+        for category, pattern in CATEGORY_PATTERNS:
+            if pattern.search(line_clean):
+                return category
+
+    return None
 
 
 def iter_all_shapes(shapes):
@@ -678,14 +717,19 @@ def extract_products_from_pptx(
     raw_rows: list[dict] = []
     product_rows: list[dict] = []
     used_line_indices: set[tuple[int, int]] = set()
+    current_category: str | None = None
 
     for slide_number, slide in enumerate(prs.slides, start=1):
         text_items = get_slide_text_items(slide)
         lines = get_slide_lines(slide)
+        detected_category = detect_slide_category(lines)
+        if detected_category:
+            current_category = detected_category
 
         raw_rows.append(
             {
                 "slide_number": slide_number,
+                "category": current_category,
                 "slide_text": "\n".join(lines),
             }
         )
@@ -740,6 +784,7 @@ def extract_products_from_pptx(
                 product_rows.append(
                     {
                         "slide_number": slide_number,
+                        "category": current_category,
                         "product_name": product_name,
                         "style_codes": style_code,
                         "wholesale_price": wholesale,
@@ -827,6 +872,7 @@ def extract_products_from_pptx(
             product_rows.append(
                 {
                     "slide_number": slide_number,
+                    "category": current_category,
                     "product_name": product_name,
                     "style_codes": ",".join(style_codes),
                     "wholesale_price": wholesale,
@@ -861,6 +907,7 @@ def extract_products_from_pptx(
                     exploded_rows.append(
                         {
                             "slide_number": row["slide_number"],
+                            "category": row.get("category"),
                             "product_name": row["product_name"],
                             "style_code": style,
                             "color_code": color,
@@ -875,6 +922,7 @@ def extract_products_from_pptx(
                 exploded_rows.append(
                     {
                         "slide_number": row["slide_number"],
+                        "category": row.get("category"),
                         "product_name": row["product_name"],
                         "style_code": style,
                         "color_code": None,
