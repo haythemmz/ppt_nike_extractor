@@ -13,7 +13,6 @@ from pptx import Presentation
 # -----------------------------
 
 STYLE_RE = re.compile(r"\b[A-Z]{2}\d{4}\b")
-STYLE_COLOR_RE = re.compile(r"\b([A-Z]{2}\d{4})[-–—](\d{3})\b")
 
 # Special Nike accessories/bags style-color format, for example: N.100.3478.091
 ACCESSORY_STYLE_COLOR_RE = re.compile(r"\bN\.\d{3}\.\d{4}\.\d{3}\b", re.I)
@@ -90,18 +89,6 @@ def unique_preserve_order(values: list[str]) -> list[str]:
     return result
 
 
-def extract_style_color_pairs(text: str) -> list[tuple[str, str]]:
-    text = clean_text(text)
-    return [
-        (match.group(1).upper(), match.group(2).zfill(3))
-        for match in STYLE_COLOR_RE.finditer(text)
-    ]
-
-
-def extract_colors_from_style_color_tokens(text: str) -> list[str]:
-    return unique_preserve_order([color for _, color in extract_style_color_pairs(text)])
-
-
 def iter_all_shapes(shapes):
     """Yield shapes recursively, including shapes inside groups."""
     for shape in shapes:
@@ -125,7 +112,7 @@ def get_slide_text_items(slide) -> list[dict]:
         if not text:
             continue
 
-        for line_index, raw_line in enumerate(text.splitlines()):
+        for raw_line in text.splitlines():
             line = clean_text(raw_line)
             if not line:
                 continue
@@ -133,7 +120,6 @@ def get_slide_text_items(slide) -> list[dict]:
             items.append(
                 {
                     "shape_index": shape_index,
-                    "line_index": line_index,
                     "text": line,
                     "left": int(getattr(shape, "left", 0)),
                     "top": int(getattr(shape, "top", 0)),
@@ -176,25 +162,19 @@ def is_new_product_start(line: str, lookahead: str = "") -> bool:
     return bool(re.search(r"\b(WHOLESALE|RETAIL)\b", combined, flags=re.I))
 
 
-def extract_prices(text: str, aggressive: bool = False) -> tuple[float | None, float | None]:
+def extract_prices(text: str) -> tuple[float | None, float | None]:
     """
     Extract wholesale and retail prices.
     Most product lines are like:
         IR4565 | $70.00 WHOLESALE | $140.00 RETAIL | NEW
     Fallback keeps the first two dollar values as wholesale/retail.
-    
-    Args:
-        text: Text to extract prices from
-        aggressive: If True, will assign first smaller price to wholesale and larger to retail
-                   even if labels are missing or unclear
     """
     text_clean = clean_text(text)
 
     wholesale = None
     retail = None
-    debug_mode = False  # Set to True to see extraction details
 
-    # Explicit label near value: $70.00 WHOLESALE / $140.00 RETAIL or $70.00Wholesale
+    # Explicit label near value: $70.00 WHOLESALE / $140.00 RETAIL
     for match in re.finditer(
         r"\$\s*(\d+(?:\.\d{2})?)\s*(WHOLESALE|WS|WHSE|RETAIL)\b(?!\s*:)",
         text_clean,
@@ -204,12 +184,10 @@ def extract_prices(text: str, aggressive: bool = False) -> tuple[float | None, f
         label = match.group(2).upper()
         if label in {"WHOLESALE", "WS", "WHSE"} and wholesale is None:
             wholesale = value
-            if debug_mode: print(f"  Found WHOLESALE (after $): {value}")
         elif label == "RETAIL" and retail is None:
             retail = value
-            if debug_mode: print(f"  Found RETAIL (after $): {value}")
 
-    # Explicit label before value: RETAIL $26.00 or Retail: $26.00
+    # Explicit label before value: RETAIL $26.00
     for match in re.finditer(
         r"\b(WHOLESALE|WS|WHSE|RETAIL)\b\s*:?\s*\$\s*(\d+(?:\.\d{2})?)",
         text_clean,
@@ -219,39 +197,8 @@ def extract_prices(text: str, aggressive: bool = False) -> tuple[float | None, f
         value = float(match.group(2))
         if label in {"WHOLESALE", "WS", "WHSE"} and wholesale is None:
             wholesale = value
-            if debug_mode: print(f"  Found WHOLESALE (before $): {value}")
         elif label == "RETAIL" and retail is None:
             retail = value
-            if debug_mode: print(f"  Found RETAIL (before $): {value}")
-
-    # Same labeled formats without a dollar sign: 70.00 WHOLESALE / Retail: 140.00
-    for match in re.finditer(
-        r"(?<![A-Z0-9$])(\d+\.\d{2})\s*(WHOLESALE|WS|WHSE|RETAIL)\b(?!\s*:)",
-        text_clean,
-        flags=re.I,
-    ):
-        value = float(match.group(1))
-        label = match.group(2).upper()
-        if label in {"WHOLESALE", "WS", "WHSE"} and wholesale is None:
-            wholesale = value
-            if debug_mode: print(f"  Found WHOLESALE (no $ after value): {value}")
-        elif label == "RETAIL" and retail is None:
-            retail = value
-            if debug_mode: print(f"  Found RETAIL (no $ after value): {value}")
-
-    for match in re.finditer(
-        r"\b(WHOLESALE|WS|WHSE|RETAIL)\b\s*:?\s*(?!\$)(\d+\.\d{2})",
-        text_clean,
-        flags=re.I,
-    ):
-        label = match.group(1).upper()
-        value = float(match.group(2))
-        if label in {"WHOLESALE", "WS", "WHSE"} and wholesale is None:
-            wholesale = value
-            if debug_mode: print(f"  Found WHOLESALE (no $ before value): {value}")
-        elif label == "RETAIL" and retail is None:
-            retail = value
-            if debug_mode: print(f"  Found RETAIL (no $ before value): {value}")
 
     # Fallback: all explicit dollar amounts in order.
     values: list[float] = []
@@ -259,8 +206,6 @@ def extract_prices(text: str, aggressive: bool = False) -> tuple[float | None, f
         value = float(match.group(1))
         if value not in values:
             values.append(value)
-    
-    if debug_mode and values: print(f"  All dollar values found: {values}")
 
     # Backup: values like 20.00 WS without $
     if len(values) < 2:
@@ -273,45 +218,10 @@ def extract_prices(text: str, aggressive: bool = False) -> tuple[float | None, f
             if value not in values:
                 values.append(value)
 
-    # First pass fallback for completely unlabeled prices only.
-    # Do not copy a single explicitly labeled retail price into wholesale.
-    if wholesale is None and retail is None:
-        if len(values) >= 1:
-            wholesale = values[0]
-            if debug_mode: print(f"  Fallback WHOLESALE: {wholesale}")
-        if len(values) >= 2:
-            retail = values[1]
-            if debug_mode: print(f"  Fallback RETAIL: {retail}")
-    elif retail is None and len(values) >= 2:
-        for value in values:
-            if value != wholesale:
-                retail = value
-                if debug_mode: print(f"  Fallback RETAIL: {retail}")
-                break
-    
-    if debug_mode:
-        print(f"  After initial extraction - WS: {wholesale}, RT: {retail}")
-    
-    # Aggressive mode: intelligently assign prices by value when labels are unclear
-    if aggressive and len(values) >= 2:
-        unique_values = sorted(set(values))
-        if debug_mode: print(f"  Aggressive mode: unique sorted values: {unique_values}")
-        
-        # If we found two different prices, assign smaller to wholesale, larger to retail
-        if len(unique_values) >= 2:
-            # Make sure wholesale is the smaller price
-            if wholesale is None or retail is None:
-                # At least one is missing, fill both intelligently
-                wholesale = unique_values[0]  # Smaller
-                retail = unique_values[1]     # Larger
-                if debug_mode: print(f"  Aggressive: filled missing - WS: {wholesale}, RT: {retail}")
-            elif wholesale > retail:
-                # Prices are backwards, swap them
-                wholesale, retail = retail, wholesale
-                if debug_mode: print(f"  Aggressive: swapped backwards - WS: {wholesale}, RT: {retail}")
-
-    if debug_mode:
-        print(f"  Final result - WS: {wholesale}, RT: {retail}\n")
+    if wholesale is None and len(values) >= 1:
+        wholesale = values[0]
+    if retail is None and len(values) >= 2:
+        retail = values[1]
 
     return wholesale, retail
 
@@ -455,6 +365,7 @@ def build_product_name(line: str, lines: list[str], idx: int, first_style: str) 
     return previous_product_name(lines, idx) or next_product_name(lines, idx) or None
 
 
+
 # -----------------------------
 # Nike accessories / bags format
 # -----------------------------
@@ -476,56 +387,6 @@ def has_accessory_style_color(text: str) -> bool:
     return bool(ACCESSORY_STYLE_COLOR_RE.search(clean_text(text)))
 
 
-def get_text_box_lines(items: list[dict], shape_index: int) -> list[str]:
-    shape_items = [item for item in items if item["shape_index"] == shape_index]
-    shape_items = sorted(shape_items, key=lambda x: x.get("line_index", 0))
-    return [item["text"] for item in shape_items]
-
-
-def get_accessory_price_context(items: list[dict], code_item: dict, lines: list[str], line_idx: int) -> str:
-    """
-    Accessory slides often place each product caption in one text box:
-        product name
-        N.101.4761.016
-        Wholesale: $17.50
-        Retail: $35.00
-
-    Use that text box first so prices from neighboring captions are not mixed in.
-    """
-    same_box_lines = get_text_box_lines(items, code_item["shape_index"])
-    same_box_text = clean_text(" ".join(same_box_lines))
-    wholesale, retail = extract_prices(same_box_text, aggressive=True)
-
-    if wholesale is not None and retail is not None:
-        return same_box_text
-
-    left = int(code_item.get("left", 0))
-    top = int(code_item.get("top", 0))
-    width = max(int(code_item.get("width", 0)), 1)
-    height = max(int(code_item.get("height", 0)), 1)
-    center_x = left + width / 2
-
-    nearby: list[dict] = []
-    for item in items:
-        item_left = int(item.get("left", 0))
-        item_top = int(item.get("top", 0))
-        item_width = max(int(item.get("width", 0)), 1)
-        item_center_x = item_left + item_width / 2
-
-        same_column = abs(item_center_x - center_x) <= max(width, item_width) * 0.65
-        close_below = top - height <= item_top <= top + height * 3.5
-
-        if same_column and close_below:
-            nearby.append(item)
-
-    nearby_text = clean_text(" ".join(item["text"] for item in sorted(nearby, key=lambda x: (x["top"], x["left"], x.get("line_index", 0)))))
-    wholesale, retail = extract_prices(nearby_text, aggressive=True)
-    if wholesale is not None and retail is not None:
-        return nearby_text
-
-    return same_box_text or nearby_text or clean_text(" ".join(lines[line_idx : min(line_idx + 10, len(lines))]))
-
-
 def build_style_color_key(style: str, color: str | None) -> str:
     style = clean_text(style)
     color = clean_text(color) if color is not None else ""
@@ -539,7 +400,6 @@ def build_style_color_key(style: str, color: str | None) -> str:
 
     # Apparel uses the regular style-color convention.
     return f"{style}-{color}"
-
 
 # -----------------------------
 # Color extraction
@@ -680,7 +540,6 @@ def extract_products_from_pptx(
     used_line_indices: set[tuple[int, int]] = set()
 
     for slide_number, slide in enumerate(prs.slides, start=1):
-        text_items = get_slide_text_items(slide)
         lines = get_slide_lines(slide)
 
         raw_rows.append(
@@ -701,21 +560,13 @@ def extract_products_from_pptx(
 
         # Special handling for Nike accessories/bags slides.
         # These use codes like N.100.3478.091 and prices on the following lines.
-        accessory_line_items = {
-            (item["shape_index"], item.get("line_index", 0)): idx
-            for idx, item in enumerate(text_items)
-        }
-
-        for item in text_items:
-            line = item["text"]
-            i = accessory_line_items.get((item["shape_index"], item.get("line_index", 0)), 0)
+        for i, line in enumerate(lines):
             accessory_codes = ACCESSORY_STYLE_COLOR_RE.findall(line)
             if not accessory_codes:
                 continue
 
-            combined = get_accessory_price_context(text_items, item, lines, i)
-            # Use aggressive mode for bags to find both prices even if labels are unclear
-            wholesale, retail = extract_prices(combined, aggressive=True)
+            combined = clean_text(" ".join(lines[i : min(i + 5, len(lines))]))
+            wholesale, retail = extract_prices(combined)
             status_match = STATUS_RE.search(combined)
             status = status_match.group(1).upper() if status_match else None
             product_name = previous_product_name(lines, i) or next_product_name(lines, i)
@@ -786,8 +637,7 @@ def extract_products_from_pptx(
                         end_idx = j
                         break
 
-            style_codes = unique_preserve_order(STYLE_RE.findall(combined))
-            style_token_colors = extract_colors_from_style_color_tokens(combined)
+            style_codes = STYLE_RE.findall(combined)
             wholesale, retail = extract_prices(combined)
 
             status_match = STATUS_RE.search(combined)
@@ -796,9 +646,7 @@ def extract_products_from_pptx(
             product_name = build_product_name(line, lines, i, first_style)
 
             # Original line-based extraction.
-            line_colors = unique_preserve_order(
-                style_token_colors + extract_color_codes_from_lines(lines, end_idx + 1)
-            )
+            line_colors = extract_color_codes_from_lines(lines, end_idx + 1)
 
             # If the slide has only one product, use all color labels found on the slide.
             # This catches colors stored as separate text boxes.
@@ -959,3 +807,48 @@ def write_validation_report(style_colors: pd.DataFrame, expected_csv: Path, outp
     print(f"Product-name mismatches: {len(product_name_mismatch)}")
     print(f"Price mismatches: {len(price_mismatch)}")
     print(f"Status mismatches: {len(status_mismatch)}")
+
+
+# -----------------------------
+# Local run configuration
+# -----------------------------
+
+if __name__ == "__main__":
+    # Change only these 2 lines for your local machine.
+    folder = Path(
+        r"C:\Users\hmzoughi\OneDrive - Mint Green Group\Desktop\Python projects\ppt_extract"
+    )
+    pptx_file = folder / "nike_big.pptx"
+
+    # Optional validation file. If it does not exist, the script still runs.
+    validation_csv = folder / "nike_golf_ppt_style_colors 2 MISSING OR WRONG INFO.csv"
+
+    products, style_colors, raw_text = extract_products_from_pptx(pptx_file)
+
+    products.to_csv(folder / "nike_golf_ppt_products.csv", index=False)
+    style_colors.to_csv(folder / "nike_golf_ppt_style_colors.csv", index=False)
+    raw_text.to_csv(folder / "nike_golf_ppt_raw_slide_text.csv", index=False)
+
+    print(f"Products: {len(products)}")
+    print(f"Style-color rows: {len(style_colors)}")
+
+    write_validation_report(
+        style_colors=style_colors,
+        expected_csv=validation_csv,
+        output_folder=folder,
+    )
+
+    # Validation examples
+    check_styles = ["IH2059", "IO0336", "IO0345", "HQ0499"]
+
+    print("\nValidation check for selected styles:")
+    print(
+        style_colors[
+            style_colors["style_code"].isin(check_styles)
+        ]
+        .sort_values(["style_code", "color_code"], na_position="last")
+        .to_string(index=False)
+    )
+
+    print("\nFirst 10 products:")
+    print(products.head(10).to_string(index=False))
