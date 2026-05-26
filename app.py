@@ -99,6 +99,7 @@ def compare_ppt_to_nike(style_colors: pd.DataFrame, nike_data: pd.DataFrame) -> 
         "style_code",
         "color_code",
         "style_color_key",
+        "image_name",
         "exists_in_nike",
         "wholesale_price",
         "nike_wholesale_price",

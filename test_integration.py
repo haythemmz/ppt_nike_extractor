@@ -8,6 +8,7 @@ try:
         split_accessory_style_color,
         has_accessory_style_color,
         build_style_color_key,
+        build_image_name,
         extract_colors_from_style_color_tokens,
         detect_slide_category,
         get_accessory_price_context,
@@ -38,6 +39,10 @@ try:
     key_apparel = build_style_color_key("IR4565", "010")
     assert key_apparel == "IR4565-010", f"Apparel key mismatch: {key_apparel}"
     print(f"✓ Apparel style-color key: {key_apparel}")
+
+    image_name = build_image_name(12, "IR4565-010")
+    assert image_name == "slide_012_IR4565-010.png", f"Image name mismatch: {image_name}"
+    print(f"✓ Image name: {image_name}")
 
     colors = extract_colors_from_style_color_tokens("W NK DF VLCITY SL POLO IO1640-100 $30.00 WS | $60.00 RETAIL")
     assert colors == ["100"], f"Style-color token color extraction failed: {colors}"

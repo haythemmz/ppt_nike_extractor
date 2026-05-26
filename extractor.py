@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import io
 import re
+import zipfile
 from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
+from PIL import Image, UnidentifiedImageError
 from pptx import Presentation
 
 
@@ -580,6 +583,103 @@ def build_style_color_key(style: str, color: str | None) -> str:
     return f"{style}-{color}"
 
 
+def build_image_name(slide_number: int, style_color_key: str) -> str:
+    safe_key = re.sub(r"[^A-Za-z0-9._-]+", "_", clean_text(style_color_key))
+    return f"slide_{int(slide_number):03d}_{safe_key}.png"
+
+
+def iter_picture_shapes(shapes):
+    """Yield picture-like shapes recursively, including pictures inside groups."""
+    for shape in shapes:
+        if hasattr(shape, "image"):
+            yield shape
+        if hasattr(shape, "shapes"):
+            yield from iter_picture_shapes(shape.shapes)
+
+
+def picture_to_png_bytes(blob: bytes) -> bytes | None:
+    try:
+        with Image.open(io.BytesIO(blob)) as image:
+            if image.mode not in {"RGB", "RGBA"}:
+                image = image.convert("RGBA")
+            output = io.BytesIO()
+            image.save(output, format="PNG")
+            return output.getvalue()
+    except (UnidentifiedImageError, OSError):
+        return None
+
+
+def get_slide_product_pictures(slide) -> list[dict]:
+    pictures: list[dict] = []
+
+    for shape in iter_picture_shapes(slide.shapes):
+        width = int(getattr(shape, "width", 0))
+        height = int(getattr(shape, "height", 0))
+
+        # Skip tiny logos/icons. Product images are materially larger than these.
+        if width < 300_000 or height < 300_000:
+            continue
+
+        pictures.append(
+            {
+                "blob": shape.image.blob,
+                "left": int(getattr(shape, "left", 0)),
+                "top": int(getattr(shape, "top", 0)),
+                "width": width,
+                "height": height,
+            }
+        )
+
+    return sorted(pictures, key=lambda x: (x["top"], x["left"]))
+
+
+def build_images_zip_from_pptx(pptx_path: str | Path, style_colors: pd.DataFrame) -> tuple[bytes, int]:
+    """
+    Export product pictures into a ZIP using the image_name column.
+    Matching is by slide and visual order, so it is a practical database seed rather than
+    a pixel-perfect image/product matcher.
+    """
+    if style_colors.empty or "image_name" not in style_colors.columns:
+        return b"", 0
+
+    prs = Presentation(str(pptx_path))
+    zip_buffer = io.BytesIO()
+    written_names: set[str] = set()
+    image_count = 0
+
+    with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
+        for slide_number, slide in enumerate(prs.slides, start=1):
+            slide_rows = style_colors[style_colors["slide_number"] == slide_number].copy()
+            if slide_rows.empty:
+                continue
+
+            pictures = get_slide_product_pictures(slide)
+            if not pictures:
+                continue
+
+            slide_rows = slide_rows.drop_duplicates("image_name").reset_index(drop=True)
+
+            for row_idx, row in slide_rows.iterrows():
+                picture_idx = min(
+                    int(row_idx * len(pictures) / max(len(slide_rows), 1)),
+                    len(pictures) - 1,
+                )
+                png_bytes = picture_to_png_bytes(pictures[picture_idx]["blob"])
+                if png_bytes is None:
+                    continue
+
+                image_name = str(row["image_name"])
+                if image_name in written_names:
+                    continue
+
+                zip_file.writestr(image_name, png_bytes)
+                written_names.add(image_name)
+                image_count += 1
+
+    zip_buffer.seek(0)
+    return zip_buffer.getvalue(), image_count
+
+
 # -----------------------------
 # Color extraction
 # -----------------------------
@@ -904,6 +1004,7 @@ def extract_products_from_pptx(
         if colors:
             for style in styles:
                 for color in colors:
+                    style_color_key = build_style_color_key(style, color)
                     exploded_rows.append(
                         {
                             "slide_number": row["slide_number"],
@@ -911,7 +1012,8 @@ def extract_products_from_pptx(
                             "product_name": row["product_name"],
                             "style_code": style,
                             "color_code": color,
-                            "style_color_key": build_style_color_key(style, color),
+                            "style_color_key": style_color_key,
+                            "image_name": build_image_name(row["slide_number"], style_color_key),
                             "wholesale_price": row["wholesale_price"],
                             "retail_price": row["retail_price"],
                             "status": row["status"],
@@ -919,6 +1021,7 @@ def extract_products_from_pptx(
                     )
         else:
             for style in styles:
+                style_color_key = style
                 exploded_rows.append(
                     {
                         "slide_number": row["slide_number"],
@@ -926,7 +1029,8 @@ def extract_products_from_pptx(
                         "product_name": row["product_name"],
                         "style_code": style,
                         "color_code": None,
-                        "style_color_key": style,
+                        "style_color_key": style_color_key,
+                        "image_name": build_image_name(row["slide_number"], style_color_key),
                         "wholesale_price": row["wholesale_price"],
                         "retail_price": row["retail_price"],
                         "status": row["status"],

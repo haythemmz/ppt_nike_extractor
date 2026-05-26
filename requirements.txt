@@ -2,3 +2,4 @@ streamlit
 python-pptx
 pandas
 openpyxl
+pillow

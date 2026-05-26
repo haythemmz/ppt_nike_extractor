@@ -4,5 +4,6 @@ __pycache__/
 *.pptx
 *.xlsx
 *.csv
+*_images/
 .env
 .DS_Store
