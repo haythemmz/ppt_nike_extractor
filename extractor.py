@@ -15,11 +15,19 @@ from pptx import Presentation
 # Regex / cleaning rules
 # -----------------------------
 
-STYLE_RE = re.compile(r"\b[A-Z]{2}\d{4}\b")
-STYLE_COLOR_RE = re.compile(r"\b([A-Z]{2}\d{4})[-–—](\d{3})\b")
+STYLE_RE = re.compile(r"\b(?=[A-Z0-9]{6}\b)(?=[A-Z0-9]*\d)[A-Z]{2}[A-Z0-9]{4}\b")
+# Standard Nike style-color cards, including slash colors such as IR5946-010/676.
+STANDARD_STYLE_COLOR_RE = re.compile(r"\b([A-Z]{2}[A-Z0-9]{4})-(\d{3})(?:/(\d{3}))?\b")
+STYLE_COLOR_RE = STANDARD_STYLE_COLOR_RE
+DETAIL_STYLE_LINE_RE = re.compile(
+    r"^(?P<style>[A-Z0-9]{6})\s*\|\s*\$(?P<ws>\d+(?:\.\d{1,2})?)\s*WHOLESALE\s*\|\s*\$(?P<retail>\d+(?:\.\d{1,2})?)\s*RETAIL\s*\|\s*(?P<status>NEW|CARRYOVER)$",
+    re.I,
+)
 
 # Special Nike accessories/bags style-color format, for example: N.100.3478.091
 ACCESSORY_STYLE_COLOR_RE = re.compile(r"\bN\.\d{3}\.\d{4}\.\d{3}\b", re.I)
+VALID_STANDARD_STYLE_COLOR_RE = re.compile(r"^[A-Z]{2}[A-Z0-9]{4}-\d{3}$")
+VALID_ACCESSORY_STYLE_COLOR_RE = re.compile(r"^N\.\d{3}\.\d{4}\.\d{3}$", re.I)
 
 STATUS_RE = re.compile(r"\b(NEW|CARRYOVER)\b", re.I)
 
@@ -48,13 +56,45 @@ BAD_PRODUCT_NAME_RE = re.compile(
     re.I,
 )
 
+FEATURE_PRODUCT_NAME_RE = re.compile(
+    r"(?i)^(?:"
+    r".*\d+%\s*(?:polyester|cotton|nylon|spandex|elastane|rayon|modal).*|"
+    r"(?:body|lining|material content)\s*:.*|"
+    r"embroidered\s+(?:shield|swoosh|logo).*|"
+    r".*\b(?:shield|swoosh|logo)\b.*(?:embroidery|embroidered|on\s+(?:sleeve|front|chest|back)).*|"
+    r".*(?:embroidery|embroidered).*\b(?:shield|swoosh|logo)\b.*|"
+    r".*\b(?:shield|swoosh|logo)\s+on\b.*|"
+    r"top\s+stitched.*|"
+    r".*\b(?:hood|3-piece hood)\s+construction\b.*|"
+    r"utility\s+webbing.*|"
+    r"strap-through\s+design.*|"
+    r"faux-fur\s+lining.*|"
+    r"premium$|"
+    r"synth\s*etic$|"
+    r"(?:drivers?|putters?|mallets?|headcovers?|head\s*covers?|bags?)$|"
+    r".*\b(?:helps|protects|holds|features and benefits|key features)\b.*|"
+    r"N\.\d{3}\.\d{4}\.\d{3}.*|"
+    r".*\((?:left|right)\)\s*/?$"
+    r")$"
+)
+
+HEADER_PRODUCT_NAME_RE = re.compile(
+    r"(?i)^(?:"
+    r"NIKE\s+GLOBAL\s+SPORTS\s+APPAREL.*|"
+    r"KEEP\s+IT\s+TIGHT\.?|"
+    r"SEASON\s*/\s*S\d+|"
+    r"V\.\d+|"
+    r"©.*NIKE.*"
+    r")$"
+)
+
 # Strong title patterns for Nike product names.
 PRODUCT_TITLE_RE = re.compile(
     r"^(?:M|W|B|G|K|U)\s+NK\b|"
     r"^NK\s+|"
     r"^K\s+NSW\b|"
     r"^W\s+NSW\b|"
-    r"^NIKE\s+(?:AIR|INFINITY|EVERYDAY|UNICORN|BRASILIA)\b|"
+    r"^NIKE\s+|"
     r"^Nike Brasilia\b|"
     r"^VICTORY\b|"
     r"^NEXT%\b|"
@@ -73,17 +113,17 @@ PRODUCT_KEYWORDS = {
 }
 
 CATEGORY_PATTERNS: list[tuple[str, re.Pattern]] = [
-    ("Men's Apparel", re.compile(r"\bMEN'?S\s+APPAREL\b", re.I)),
-    ("Women's Apparel", re.compile(r"\bWOMEN'?S\s+APPAREL\b", re.I)),
-    ("Kids' Apparel", re.compile(r"\b(?:KIDS?|YOUTH|BOYS?|GIRLS?)\s+APPAREL\b", re.I)),
+    ("Men's Apparel", re.compile(r"^(?:MEN'?S|MENS)\s+APPAREL$", re.I)),
+    ("Women's Apparel", re.compile(r"^(?:WOMEN'?S|WOMENS)\s+APPAREL$", re.I)),
+    ("Kids' Apparel", re.compile(r"^(?:KIDS?|YOUTH|BOYS?|GIRLS?)\s+APPAREL$", re.I)),
     ("Apparel", re.compile(r"^APPAREL$", re.I)),
-    ("Bags", re.compile(r"\b(?:BAGS?|BACKPACKS?|DUFFELS?|DRAWSTRING)\b", re.I)),
-    ("Gloves", re.compile(r"\bGLOVES?\b", re.I)),
-    ("Headcovers", re.compile(r"\bHEAD\s*COVERS?\b|\bHEADCOVERS?\b", re.I)),
-    ("Footwear", re.compile(r"\bFOOTWEAR\b|\bSHOES?\b", re.I)),
-    ("Socks", re.compile(r"\bSOCKS?\b", re.I)),
-    ("Caps & Headwear", re.compile(r"\b(?:CAPS?|HATS?|HEADWEAR|VISORS?|BEANIES?)\b", re.I)),
-    ("Accessories", re.compile(r"\bACCESSORIES\b", re.I)),
+    ("Bags", re.compile(r"^(?:BAGS?|BACKPACKS?|DUFFELS?|DRAWSTRING\s+BAGS?)$", re.I)),
+    ("Gloves", re.compile(r"^GLOVES?$", re.I)),
+    ("Headcovers", re.compile(r"^(?:HEAD\s*COVERS?|HEADCOVERS?)$", re.I)),
+    ("Footwear", re.compile(r"^(?:FOOTWEAR|SHOES?)$", re.I)),
+    ("Socks", re.compile(r"^SOCKS?$", re.I)),
+    ("Caps & Headwear", re.compile(r"^(?:CAPS?|HATS?|HEADWEAR|VISORS?|BEANIES?)$", re.I)),
+    ("Accessories", re.compile(r"^ACCESSORIES$", re.I)),
 ]
 
 
@@ -96,6 +136,7 @@ def clean_text(value: str) -> str:
     value = value.replace("\xa0", " ")
     value = value.replace("–", "-").replace("—", "-")
     value = value.replace("’", "'")
+    value = value.replace("–", "-").replace("—", "-")
     return re.sub(r"\s+", " ", value).strip()
 
 
@@ -109,10 +150,67 @@ def unique_preserve_order(values: list[str]) -> list[str]:
 
 def extract_style_color_pairs(text: str) -> list[tuple[str, str]]:
     text = clean_text(text)
-    return [
-        (match.group(1).upper(), match.group(2).zfill(3))
-        for match in STYLE_COLOR_RE.finditer(text)
-    ]
+    pairs: list[tuple[str, str]] = []
+    for match in STYLE_COLOR_RE.finditer(text):
+        style = match.group(1).upper()
+        pairs.append((style, match.group(2).zfill(3)))
+        if match.group(3):
+            pairs.append((style, match.group(3).zfill(3)))
+    return pairs
+
+
+def expand_standard_style_color_tokens(text: str) -> list[dict]:
+    """
+    Expand tokens such as IR5946-010/676 into one row per color.
+    """
+    results: list[dict] = []
+    for match in STYLE_COLOR_RE.finditer(clean_text(text)):
+        style = match.group(1).upper()
+        raw_code = match.group(0).upper().replace("â€“", "-").replace("â€”", "-")
+        colors = [match.group(2).zfill(3)]
+        if match.group(3):
+            colors.append(match.group(3).zfill(3))
+
+        for color in colors:
+            results.append(
+                {
+                    "style_code": style,
+                    "color_code": color,
+                    "style_color_key": build_style_color_key(style, color),
+                    "original_raw_code": raw_code,
+                    "slash_color_expanded": len(colors) > 1,
+                }
+            )
+    return results
+
+
+def is_valid_style_color_key(value: str) -> bool:
+    key = clean_text(value).upper()
+    standard_match = VALID_STANDARD_STYLE_COLOR_RE.fullmatch(key)
+    if standard_match:
+        style = key.split("-", 1)[0]
+        return any(ch.isdigit() for ch in style)
+
+    return bool(
+        VALID_ACCESSORY_STYLE_COLOR_RE.fullmatch(key)
+    )
+
+
+def parse_detail_style_line(line: str) -> dict | None:
+    match = DETAIL_STYLE_LINE_RE.fullmatch(clean_text(line).upper())
+    if not match:
+        return None
+
+    style = match.group("style").upper()
+    if not any(ch.isdigit() for ch in style):
+        return None
+
+    return {
+        "style": style,
+        "wholesale": float(match.group("ws")),
+        "retail": float(match.group("retail")),
+        "status": match.group("status").upper(),
+    }
 
 
 def extract_colors_from_style_color_tokens(text: str) -> list[str]:
@@ -152,7 +250,7 @@ def iter_all_shapes(shapes):
             yield from iter_all_shapes(shape.shapes)
 
 
-def get_slide_text_items(slide) -> list[dict]:
+def get_slide_text_items(slide, slide_width: int | None = None, slide_height: int | None = None) -> list[dict]:
     """
     Extract text from slide shapes with their visual position.
     Sorting by top/left makes the extraction closer to what we see on the slide.
@@ -162,6 +260,21 @@ def get_slide_text_items(slide) -> list[dict]:
     for shape_index, shape in enumerate(iter_all_shapes(slide.shapes)):
         if not hasattr(shape, "text") or not shape.text:
             continue
+
+        left = int(getattr(shape, "left", 0))
+        top = int(getattr(shape, "top", 0))
+        width = int(getattr(shape, "width", 0))
+        height = int(getattr(shape, "height", 0))
+
+        if slide_width is not None and slide_height is not None:
+            completely_off_slide = (
+                left + width < 0
+                or top + height < 0
+                or left > slide_width
+                or top > slide_height
+            )
+            if completely_off_slide:
+                continue
 
         text = shape.text.strip()
         if not text:
@@ -177,10 +290,10 @@ def get_slide_text_items(slide) -> list[dict]:
                     "shape_index": shape_index,
                     "line_index": line_index,
                     "text": line,
-                    "left": int(getattr(shape, "left", 0)),
-                    "top": int(getattr(shape, "top", 0)),
-                    "width": int(getattr(shape, "width", 0)),
-                    "height": int(getattr(shape, "height", 0)),
+                    "left": left,
+                    "top": top,
+                    "width": width,
+                    "height": height,
                 }
             )
 
@@ -188,8 +301,8 @@ def get_slide_text_items(slide) -> list[dict]:
     return sorted(items, key=lambda x: (x["top"], x["left"], x["shape_index"]))
 
 
-def get_slide_lines(slide) -> list[str]:
-    return [item["text"] for item in get_slide_text_items(slide)]
+def get_slide_lines(slide, slide_width: int | None = None, slide_height: int | None = None) -> list[str]:
+    return [item["text"] for item in get_slide_text_items(slide, slide_width, slide_height)]
 
 
 def looks_like_price_context(text: str) -> bool:
@@ -206,16 +319,14 @@ def is_new_product_start(line: str, lookahead: str = "") -> bool:
     because those are not detailed product blocks and usually do not contain colors.
     """
     line_clean = clean_text(line)
-    combined = clean_text(line + " " + lookahead)
-
-    if not STYLE_RE.search(line_clean):
-        return False
+    if parse_detail_style_line(line_clean):
+        return True
 
     # Ignore overview/grid lines.
     if re.match(r"^(?:WS|AS)\s*:", line_clean, flags=re.I):
         return False
 
-    return bool(re.search(r"\b(WHOLESALE|RETAIL)\b", combined, flags=re.I))
+    return False
 
 
 def extract_prices(text: str, aggressive: bool = False) -> tuple[float | None, float | None]:
@@ -373,6 +484,12 @@ def is_likely_product_name(line: str) -> bool:
     if BAD_PRODUCT_NAME_RE.search(line):
         return False
 
+    if FEATURE_PRODUCT_NAME_RE.search(line):
+        return False
+
+    if HEADER_PRODUCT_NAME_RE.search(line):
+        return False
+
     # Color-code-only line: 010 or 010 100 274
     if re.fullmatch(r"[0-9]{3}(\s+[0-9]{3})*", line):
         return False
@@ -388,7 +505,7 @@ def is_likely_product_name(line: str) -> bool:
     if len(line.split()) > 12 and not PRODUCT_TITLE_RE.search(line):
         return False
 
-    return len(line) > 2
+    return product_title_score(line) >= 20
 
 
 def product_title_score(line: str) -> int:
@@ -415,10 +532,168 @@ def product_title_score(line: str) -> int:
         score += 5
 
     # Penalize weak words that are often features/materials.
-    if BAD_PRODUCT_NAME_RE.search(line_clean):
+    if BAD_PRODUCT_NAME_RE.search(line_clean) or FEATURE_PRODUCT_NAME_RE.search(line_clean):
         score -= 100
 
     return score
+
+
+def is_category_heading(line: str) -> bool:
+    line_clean = clean_text(line)
+    return any(pattern.fullmatch(line_clean) for _, pattern in CATEGORY_PATTERNS)
+
+
+def accessory_slide_product_name(lines: list[str]) -> str | None:
+    """
+    Bag/accessory slides usually have one large product title near the top.
+    Use that title to ignore hidden/leftover copied captions from another product.
+    """
+    skip_exact = {
+        "STANDBAGS",
+        "STAND BAGS",
+        "BAGS",
+        "ACCESSORIES",
+        "KEEP IT TIGHT",
+        "KEEP IT TIGHT.",
+    }
+
+    for line in lines[:25]:
+        line_clean = clean_text(line)
+        line_upper = line_clean.upper()
+
+        if not line_clean:
+            continue
+        if line_upper in skip_exact or "NIKE GLOBAL" in line_upper:
+            continue
+        if is_category_heading(line_clean):
+            continue
+        if STYLE_RE.search(line_clean) or ACCESSORY_STYLE_COLOR_RE.search(line_clean):
+            continue
+        if looks_like_price_context(line_clean):
+            continue
+        if PRODUCT_TITLE_RE.search(line_clean) and is_likely_product_name(line_clean):
+            return line_clean
+
+    return None
+
+
+def same_product_name(left: str | None, right: str | None) -> bool:
+    if not left or not right:
+        return False
+    return clean_text(left).upper() == clean_text(right).upper()
+
+
+def item_right(item: dict) -> int:
+    return int(item.get("left", 0)) + int(item.get("width", 0))
+
+
+def item_bottom(item: dict) -> int:
+    return int(item.get("top", 0)) + int(item.get("height", 0))
+
+
+def horizontal_overlap_ratio(a: dict, b: dict) -> float:
+    overlap = max(0, min(item_right(a), item_right(b)) - max(int(a.get("left", 0)), int(b.get("left", 0))))
+    base = max(1, min(int(a.get("width", 0)) or 1, int(b.get("width", 0)) or 1))
+    return overlap / base
+
+
+def is_grid_product_name_candidate(item: dict) -> bool:
+    text = clean_text(item.get("text", ""))
+    if not is_likely_product_name(text):
+        return False
+    if is_category_heading(text):
+        return False
+    if ACCESSORY_STYLE_COLOR_RE.search(text) or STYLE_COLOR_RE.search(text):
+        return False
+    return product_title_score(text) >= 10
+
+
+def nearest_product_name_by_position(code_item: dict, items: list[dict]) -> tuple[str | None, float | None, bool]:
+    candidates: list[dict] = []
+    code_top = int(code_item.get("top", 0))
+    code_center_x = int(code_item.get("left", 0)) + max(int(code_item.get("width", 0)), 1) / 2
+
+    for item in items:
+        if not is_grid_product_name_candidate(item):
+            continue
+
+        same_box_before = (
+            item.get("shape_index") == code_item.get("shape_index")
+            and int(item.get("line_index", 0)) < int(code_item.get("line_index", 0))
+        )
+        vertical_gap = code_top - item_bottom(item)
+        same_column = horizontal_overlap_ratio(code_item, item) >= 0.25
+        center_gap = abs((int(item.get("left", 0)) + max(int(item.get("width", 0)), 1) / 2) - code_center_x)
+
+        if not same_box_before and (vertical_gap < -40_000 or vertical_gap > 1_200_000):
+            continue
+        if not same_box_before and not same_column and center_gap > max(int(code_item.get("width", 0)), int(item.get("width", 0)), 1):
+            continue
+
+        score = (
+            product_title_score(item["text"])
+            + (75 if same_box_before else 0)
+            + (30 * horizontal_overlap_ratio(code_item, item))
+            - (abs(vertical_gap) / 100_000)
+            - (center_gap / 200_000)
+        )
+        candidates.append({"text": item["text"], "score": score, "same_box": same_box_before})
+
+    if not candidates:
+        return None, None, False
+
+    best = max(candidates, key=lambda x: x["score"])
+    return best["text"], round(float(best["score"]), 3), bool(best["same_box"])
+
+
+def nearest_price_context_by_position(code_item: dict, items: list[dict]) -> tuple[str, float | None, float | None, str]:
+    code_text = clean_text(code_item.get("text", ""))
+    code_ws, code_retail = extract_prices(code_text, aggressive=True)
+    if code_ws is not None and code_retail is not None:
+        return code_text, code_ws, code_retail, "high"
+
+    price_candidates: list[dict] = []
+    code_top = int(code_item.get("top", 0))
+    code_center_x = int(code_item.get("left", 0)) + max(int(code_item.get("width", 0)), 1) / 2
+
+    for item in items:
+        text = clean_text(item.get("text", ""))
+        if not text or item is code_item or not looks_like_price_context(text):
+            continue
+
+        wholesale, retail = extract_prices(text, aggressive=True)
+        if wholesale is None and retail is None:
+            continue
+
+        same_box = item.get("shape_index") == code_item.get("shape_index")
+        item_center_x = int(item.get("left", 0)) + max(int(item.get("width", 0)), 1) / 2
+        center_gap = abs(item_center_x - code_center_x)
+        vertical_gap = int(item.get("top", 0)) - code_top
+        overlap = horizontal_overlap_ratio(code_item, item)
+        same_card = same_box or (
+            -80_000 <= vertical_gap <= 650_000
+            and overlap >= 0.45
+            and center_gap <= max(int(code_item.get("width", 0)), int(item.get("width", 0)), 1) * 0.55
+        )
+
+        if same_card:
+            score = (100 if same_box else 0) + (overlap * 50) - (abs(vertical_gap) / 100_000) - (center_gap / 200_000)
+            price_candidates.append(
+                {
+                    "text": text,
+                    "wholesale": wholesale,
+                    "retail": retail,
+                    "score": score,
+                    "same_box": same_box,
+                }
+            )
+
+    if not price_candidates:
+        return code_text, None, None, "low"
+
+    best = max(price_candidates, key=lambda x: x["score"])
+    confidence = "high" if best["same_box"] and best["wholesale"] is not None and best["retail"] is not None else "medium"
+    return clean_text(f"{code_text} {best['text']}"), best["wholesale"], best["retail"], confidence
 
 
 def previous_product_name(lines: list[str], idx: int) -> str | None:
@@ -426,7 +701,7 @@ def previous_product_name(lines: list[str], idx: int) -> str | None:
 
     # Search farther back because some slides have:
     # title -> material/key features -> style code
-    for j in range(idx - 1, max(-1, idx - 25), -1):
+    for j in range(idx - 1, max(-1, idx - 60), -1):
         line = lines[j]
 
         # Stop if we hit a previous product block.
@@ -497,6 +772,57 @@ def build_product_name(line: str, lines: list[str], idx: int, first_style: str) 
     return previous_product_name(lines, idx) or next_product_name(lines, idx) or None
 
 
+def choose_recovery_name(rows: pd.DataFrame) -> dict[str, str]:
+    if rows.empty or "style_code" not in rows.columns or "product_name" not in rows.columns:
+        return {}
+
+    candidates: dict[str, tuple[int, str]] = {}
+    for _, row in rows.iterrows():
+        style = clean_text(row.get("style_code", "")).upper()
+        name = clean_text(row.get("product_name", ""))
+        if not style or not is_likely_product_name(name):
+            continue
+
+        score = product_title_score(name) + len(name.split())
+        if style not in candidates or score > candidates[style][0]:
+            candidates[style] = (score, name)
+
+    return {style: value[1] for style, value in candidates.items()}
+
+
+def choose_preferred_name_by_key(rows: pd.DataFrame) -> dict[str, str]:
+    if rows.empty or "style_color_key" not in rows.columns or "product_name" not in rows.columns:
+        return {}
+
+    candidates: dict[str, tuple[int, str]] = {}
+    for _, row in rows.iterrows():
+        key = clean_text(row.get("style_color_key", "")).upper()
+        name = clean_text(row.get("product_name", ""))
+        if not key or not is_likely_product_name(name):
+            continue
+
+        source = clean_text(row.get("extraction_source", ""))
+        source_bonus = 50 if source == "detail_product_parser" else 0
+        score = source_bonus + product_title_score(name) + len(name)
+        if key not in candidates or score > candidates[key][0]:
+            candidates[key] = (score, name)
+
+    return {key: value[1] for key, value in candidates.items()}
+
+
+def item_is_on_slide(item: dict, slide_width: int, slide_height: int) -> bool:
+    left = int(item.get("left", 0))
+    top = int(item.get("top", 0))
+    width = int(item.get("width", 0))
+    height = int(item.get("height", 0))
+    return not (
+        left + width < 0
+        or top + height < 0
+        or left > slide_width
+        or top > slide_height
+    )
+
+
 # -----------------------------
 # Nike accessories / bags format
 # -----------------------------
@@ -522,6 +848,23 @@ def get_text_box_lines(items: list[dict], shape_index: int) -> list[str]:
     shape_items = [item for item in items if item["shape_index"] == shape_index]
     shape_items = sorted(shape_items, key=lambda x: x.get("line_index", 0))
     return [item["text"] for item in shape_items]
+
+
+def accessory_product_name_from_same_box(items: list[dict], code_item: dict) -> str | None:
+    shape_items = [
+        item
+        for item in items
+        if item["shape_index"] == code_item["shape_index"]
+        and int(item.get("line_index", 0)) < int(code_item.get("line_index", 0))
+    ]
+    shape_items = sorted(shape_items, key=lambda x: x.get("line_index", 0), reverse=True)
+
+    for item in shape_items:
+        line = clean_text(item["text"])
+        if is_likely_product_name(line):
+            return line
+
+    return None
 
 
 def get_accessory_price_context(items: list[dict], code_item: dict, lines: list[str], line_idx: int) -> str:
@@ -762,13 +1105,18 @@ def extract_color_codes_from_lines(lines: list[str], start_idx: int) -> list[str
     return unique_preserve_order(color_codes)
 
 
-def extract_color_codes_from_slide_shapes(slide, slide_number: int) -> list[str]:
+def extract_color_codes_from_slide_shapes(
+    slide,
+    slide_number: int,
+    slide_width: int | None = None,
+    slide_height: int | None = None,
+) -> list[str]:
     """
     Extract color codes from all text boxes on the slide.
     This catches separate labels under product images, like 010, 274, 393, 419.
     """
     color_codes: list[str] = []
-    items = get_slide_text_items(slide)
+    items = get_slide_text_items(slide, slide_width, slide_height)
 
     for item in items:
         color_codes.extend(extract_color_codes_from_text(item["text"], slide_number=slide_number))
@@ -805,13 +1153,69 @@ def extract_section(lines: list[str], start_idx: int, label: str, stop_labels: I
     return " | ".join(results)
 
 
+def parse_grid_assortment_slide(
+    slide_number: int,
+    category: str | None,
+    text_items: list[dict],
+) -> list[dict]:
+    """
+    Parse suggested-look/assortment cards by spatial proximity instead of slide text order.
+    """
+    rows: list[dict] = []
+
+    for item in text_items:
+        expanded_codes = expand_standard_style_color_tokens(item["text"])
+        if not expanded_codes:
+            continue
+
+        product_name, name_score, name_same_box = nearest_product_name_by_position(item, text_items)
+        context, wholesale, retail, price_confidence = nearest_price_context_by_position(item, text_items)
+        status_match = STATUS_RE.search(context)
+        status = status_match.group(1).upper() if status_match else None
+
+        confidence = (
+            "high"
+            if product_name and name_same_box and wholesale is not None and retail is not None and price_confidence == "high"
+            else "medium"
+        )
+        if product_name is None or wholesale is None or retail is None:
+            confidence = "low"
+        elif price_confidence != "high":
+            confidence = "medium"
+
+        for code in expanded_codes:
+            rows.append(
+                {
+                    "slide_number": slide_number,
+                    "category": category,
+                    "product_name": product_name,
+                    "style_codes": code["style_code"],
+                    "wholesale_price": wholesale,
+                    "retail_price": retail,
+                    "status": status,
+                    "color_codes": code["color_code"],
+                    "color_count": 1,
+                    "material": "",
+                    "key_features": "",
+                    "raw_product_line": context,
+                    "original_raw_code": code["original_raw_code"],
+                    "slash_color_expanded": code["slash_color_expanded"],
+                    "extraction_source": "grid_position_parser",
+                    "confidence": confidence,
+                    "name_match_score": name_score,
+                }
+            )
+
+    return rows
+
+
 # -----------------------------
 # Main extraction
 # -----------------------------
 
 def extract_products_from_pptx(
     pptx_path: str | Path,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     prs = Presentation(str(pptx_path))
 
     raw_rows: list[dict] = []
@@ -820,12 +1224,19 @@ def extract_products_from_pptx(
     current_category: str | None = None
 
     for slide_number, slide in enumerate(prs.slides, start=1):
-        text_items = get_slide_text_items(slide)
-        lines = get_slide_lines(slide)
+        slide_width = int(prs.slide_width)
+        slide_height = int(prs.slide_height)
+        text_items = get_slide_text_items(slide, slide_width, slide_height)
+        all_text_items = get_slide_text_items(slide)
+        lines = [item["text"] for item in text_items]
         detected_category = detect_slide_category(lines)
         if detected_category:
             current_category = detected_category
-
+        primary_accessory_product_name = (
+            accessory_slide_product_name(lines)
+            if current_category in {"Bags", "Gloves", "Headcovers", "Accessories"}
+            else None
+        )
         raw_rows.append(
             {
                 "slide_number": slide_number,
@@ -841,28 +1252,53 @@ def extract_products_from_pptx(
             if is_new_product_start(slide_line, lookahead):
                 product_start_indices.append(idx)
 
-        slide_shape_colors = extract_color_codes_from_slide_shapes(slide, slide_number)
+        slide_shape_colors = extract_color_codes_from_slide_shapes(
+            slide,
+            slide_number,
+            slide_width,
+            slide_height,
+        )
+
+        grid_rows = parse_grid_assortment_slide(slide_number, current_category, text_items)
+        grid_style_color_keys = {
+            build_style_color_key(row["style_codes"], row["color_codes"])
+            for row in grid_rows
+            if row.get("style_codes") and row.get("color_codes")
+        }
+        product_rows.extend(grid_rows)
 
         # Special handling for Nike accessories/bags slides.
         # These use codes like N.100.3478.091 and prices on the following lines.
         accessory_line_items = {
             (item["shape_index"], item.get("line_index", 0)): idx
-            for idx, item in enumerate(text_items)
+            for idx, item in enumerate(all_text_items)
         }
 
-        for item in text_items:
+        for item in all_text_items:
             line = item["text"]
             i = accessory_line_items.get((item["shape_index"], item.get("line_index", 0)), 0)
             accessory_codes = ACCESSORY_STYLE_COLOR_RE.findall(line)
             if not accessory_codes:
                 continue
 
-            combined = get_accessory_price_context(text_items, item, lines, i)
+            same_box_product_name = accessory_product_name_from_same_box(all_text_items, item)
+            on_slide = item_is_on_slide(item, slide_width, slide_height)
+            if (
+                not on_slide
+                and primary_accessory_product_name
+                and not same_product_name(same_box_product_name, primary_accessory_product_name)
+            ):
+                continue
+
+            combined = get_accessory_price_context(all_text_items, item, lines, i)
             # Use aggressive mode for bags to find both prices even if labels are unclear
             wholesale, retail = extract_prices(combined, aggressive=True)
             status_match = STATUS_RE.search(combined)
             status = status_match.group(1).upper() if status_match else None
-            product_name = previous_product_name(lines, i) or next_product_name(lines, i)
+            spatial_product_name, name_score, _ = nearest_product_name_by_position(item, text_items)
+            product_name = same_box_product_name or spatial_product_name or previous_product_name(lines, i) or next_product_name(lines, i)
+            if not is_likely_product_name(product_name or "") and primary_accessory_product_name:
+                product_name = primary_accessory_product_name
 
             material = extract_section(
                 lines,
@@ -895,6 +1331,11 @@ def extract_products_from_pptx(
                         "material": material,
                         "key_features": key_features,
                         "raw_product_line": combined,
+                        "original_raw_code": full_code.upper(),
+                        "slash_color_expanded": False,
+                        "extraction_source": "bag_accessory_parser",
+                        "confidence": "high" if same_box_product_name and wholesale is not None and retail is not None else "medium",
+                        "name_match_score": name_score,
                     }
                 )
 
@@ -906,43 +1347,27 @@ def extract_products_from_pptx(
             if (slide_number, i) in used_line_indices:
                 continue
 
-            if not is_new_product_start(line, lookahead):
+            detail_line = parse_detail_style_line(line)
+            if detail_line is None:
                 continue
 
-            style_codes = STYLE_RE.findall(line)
-            if not style_codes:
-                continue
-
-            first_style = style_codes[0]
+            first_style = detail_line["style"]
             end_idx = i
             combined = line
-
-            # Combine nearby lines if price/status is split from style code.
-            for j in range(i + 1, min(i + 4, len(lines))):
-                if looks_like_price_context(combined):
-                    break
-                combined += " " + lines[j]
-                end_idx = j
-
-            if not looks_like_price_context(line):
-                for j in range(i + 1, min(i + 4, len(lines))):
-                    if looks_like_price_context(lines[j]):
-                        combined = line + " " + lines[j]
-                        end_idx = j
-                        break
-
-            style_codes = unique_preserve_order(STYLE_RE.findall(combined))
-            style_token_colors = extract_colors_from_style_color_tokens(combined)
-            wholesale, retail = extract_prices(combined)
-
-            status_match = STATUS_RE.search(combined)
-            status = status_match.group(1).upper() if status_match else None
+            style_codes = [first_style]
+            wholesale = detail_line["wholesale"]
+            retail = detail_line["retail"]
+            status = detail_line["status"]
 
             product_name = build_product_name(line, lines, i, first_style)
+            if not is_likely_product_name(product_name or ""):
+                spatial_product_name, _, _ = nearest_product_name_by_position(text_items[i], text_items)
+                if spatial_product_name:
+                    product_name = spatial_product_name
 
             # Original line-based extraction.
             line_colors = unique_preserve_order(
-                style_token_colors + extract_color_codes_from_lines(lines, end_idx + 1)
+                extract_color_codes_from_lines(lines, end_idx + 1)
             )
 
             # If the slide has only one product, use all color labels found on the slide.
@@ -983,18 +1408,23 @@ def extract_products_from_pptx(
                     "material": material,
                     "key_features": key_features,
                     "raw_product_line": combined,
+                    "original_raw_code": "",
+                    "slash_color_expanded": False,
+                    "extraction_source": "detail_product_parser",
+                    "confidence": "high" if product_name and wholesale is not None and retail is not None else "medium",
+                    "name_match_score": None,
                 }
             )
 
             for j in range(i, end_idx + 1):
                 used_line_indices.add((slide_number, j))
 
-    products_df = pd.DataFrame(product_rows)
-    raw_text_df = pd.DataFrame(raw_rows)
+    raw_extract_df = pd.DataFrame(product_rows)
+    raw_slide_text_df = pd.DataFrame(raw_rows)
 
     exploded_rows: list[dict] = []
 
-    for _, row in products_df.iterrows():
+    for _, row in raw_extract_df.iterrows():
         styles = [x for x in str(row["style_codes"]).split(",") if x]
         colors = [x for x in str(row["color_codes"]).split(",") if x]
 
@@ -1017,6 +1447,12 @@ def extract_products_from_pptx(
                             "wholesale_price": row["wholesale_price"],
                             "retail_price": row["retail_price"],
                             "status": row["status"],
+                            "original_raw_code": row.get("original_raw_code", ""),
+                            "slash_color_expanded": bool(row.get("slash_color_expanded", False)),
+                            "extraction_source": row.get("extraction_source", "detail_product_parser"),
+                            "confidence": row.get("confidence", "medium"),
+                            "duplicate_flag": False,
+                            "mismatch_flag": False,
                         }
                     )
         else:
@@ -1034,12 +1470,227 @@ def extract_products_from_pptx(
                         "wholesale_price": row["wholesale_price"],
                         "retail_price": row["retail_price"],
                         "status": row["status"],
+                        "original_raw_code": row.get("original_raw_code", ""),
+                        "slash_color_expanded": bool(row.get("slash_color_expanded", False)),
+                        "extraction_source": row.get("extraction_source", "detail_product_parser"),
+                        "confidence": row.get("confidence", "medium"),
+                        "duplicate_flag": False,
+                        "mismatch_flag": False,
                     }
                 )
 
-    style_color_df = pd.DataFrame(exploded_rows)
+    raw_style_color_df = pd.DataFrame(exploded_rows)
+    qa_rows: list[dict] = []
 
-    return products_df, style_color_df, raw_text_df
+    if raw_style_color_df.empty:
+        products_df = raw_extract_df
+        style_color_df = raw_style_color_df
+    else:
+        valid_mask = raw_style_color_df["style_color_key"].astype(str).map(is_valid_style_color_key)
+        invalid_rows = raw_style_color_df[~valid_mask].copy()
+        for _, invalid in invalid_rows.iterrows():
+            qa_rows.append(
+                {
+                    "slide_number": invalid.get("slide_number"),
+                    "style_color_key": invalid.get("style_color_key"),
+                    "issue_type": "invalid_style_color_key",
+                    "message": (
+                        "Rejected row because style_color_key does not match "
+                        "AA0000-000 or N.000.0000.000 format."
+                    ),
+                    "extraction_source": invalid.get("extraction_source"),
+                    "confidence": invalid.get("confidence"),
+                }
+            )
+
+        raw_style_color_df = raw_style_color_df[valid_mask].reset_index(drop=True)
+
+    if raw_style_color_df.empty:
+        products_df = pd.DataFrame(columns=raw_extract_df.columns)
+        style_color_df = raw_style_color_df
+    else:
+        recovery_names = choose_recovery_name(raw_style_color_df)
+        for idx, row in raw_style_color_df.iterrows():
+            current_name = clean_text(row.get("product_name", ""))
+            style = clean_text(row.get("style_code", "")).upper()
+            recovered_name = recovery_names.get(style)
+            if recovered_name and not is_likely_product_name(current_name):
+                raw_style_color_df.at[idx, "product_name"] = recovered_name
+                raw_style_color_df.at[idx, "confidence"] = "medium"
+                qa_rows.append(
+                    {
+                        "slide_number": row.get("slide_number"),
+                        "style_color_key": row.get("style_color_key"),
+                        "issue_type": "recovered_product_name",
+                        "message": f"Recovered product_name from another valid row with style_code {style}: {recovered_name}",
+                        "extraction_source": row.get("extraction_source"),
+                        "confidence": "medium",
+                    }
+                )
+
+        name_valid_mask = raw_style_color_df["product_name"].fillna("").astype(str).map(is_likely_product_name)
+        questionable_name_rows = raw_style_color_df[~name_valid_mask].copy()
+        for _, invalid in questionable_name_rows.iterrows():
+            qa_rows.append(
+                {
+                    "slide_number": invalid.get("slide_number"),
+                    "style_color_key": invalid.get("style_color_key"),
+                    "issue_type": "invalid_or_missing_product_name",
+                    "message": "Rejected row from clean output because product_name is missing or looks like feature/material/category text.",
+                    "extraction_source": invalid.get("extraction_source"),
+                    "confidence": invalid.get("confidence"),
+                }
+            )
+
+        raw_style_color_df = raw_style_color_df[name_valid_mask].reset_index(drop=True)
+
+    if raw_style_color_df.empty:
+        products_df = pd.DataFrame(columns=raw_extract_df.columns)
+        style_color_df = raw_style_color_df
+    else:
+        preferred_names = choose_preferred_name_by_key(raw_style_color_df)
+        for idx, row in raw_style_color_df.iterrows():
+            key = clean_text(row.get("style_color_key", "")).upper()
+            current_name = clean_text(row.get("product_name", ""))
+            preferred_name = preferred_names.get(key)
+            if preferred_name and preferred_name != current_name and len(preferred_name) > len(current_name):
+                raw_style_color_df.at[idx, "product_name"] = preferred_name
+                raw_style_color_df.at[idx, "confidence"] = "medium"
+                qa_rows.append(
+                    {
+                        "slide_number": row.get("slide_number"),
+                        "style_color_key": row.get("style_color_key"),
+                        "issue_type": "preferred_detail_product_name",
+                        "message": f"Preferred fuller product_name for style-color: {preferred_name}",
+                        "extraction_source": row.get("extraction_source"),
+                        "confidence": "medium",
+                    }
+                )
+
+        raw_style_color_df["duplicate_flag"] = raw_style_color_df.duplicated(
+            subset=["style_color_key", "product_name", "wholesale_price", "retail_price"],
+            keep=False,
+        )
+
+        mismatch_keys = set()
+        for key, group in raw_style_color_df.groupby("style_color_key", dropna=False):
+            names = set(group["product_name"].fillna("").astype(str).str.strip())
+            prices = set(
+                zip(
+                    group["wholesale_price"].fillna("").astype(str),
+                    group["retail_price"].fillna("").astype(str),
+                )
+            )
+            if len(names) > 1 or len(prices) > 1:
+                mismatch_keys.add(key)
+                qa_rows.append(
+                    {
+                        "slide_number": ",".join(map(str, sorted(group["slide_number"].astype(str).unique()))),
+                        "style_color_key": key,
+                        "issue_type": "duplicate_style_color_mismatch",
+                        "message": "Same style-color appears with different product names or prices.",
+                        "extraction_source": ",".join(sorted(group["extraction_source"].dropna().astype(str).unique())),
+                        "confidence": "medium",
+                    }
+                )
+
+        raw_style_color_df["mismatch_flag"] = raw_style_color_df["style_color_key"].isin(mismatch_keys)
+
+        clean_subset = ["style_color_key", "product_name", "wholesale_price", "retail_price"]
+        style_color_df = raw_style_color_df.drop_duplicates(subset=clean_subset, keep="first").reset_index(drop=True)
+        products_df = (
+            style_color_df.groupby(
+                [
+                    "slide_number",
+                    "category",
+                    "product_name",
+                    "style_code",
+                    "wholesale_price",
+                    "retail_price",
+                    "status",
+                    "extraction_source",
+                    "confidence",
+                ],
+                dropna=False,
+                as_index=False,
+            )
+            .agg(
+                color_codes=("color_code", lambda x: ",".join(unique_preserve_order([str(v) for v in x if pd.notna(v)]))),
+                color_count=("color_code", lambda x: int(pd.Series(x).dropna().nunique())),
+                raw_style_color_count=("style_color_key", "size"),
+            )
+            .rename(columns={"style_code": "style_codes"})
+        )
+
+    raw_style_iter = raw_style_color_df.iterrows() if not raw_style_color_df.empty else []
+    for _, row in raw_style_iter:
+        if not str(row.get("product_name", "") or "").strip():
+            qa_rows.append(
+                {
+                    "slide_number": row.get("slide_number"),
+                    "style_color_key": row.get("style_color_key"),
+                    "issue_type": "missing_product_name",
+                    "message": "Style-color code detected but no product name was confidently matched.",
+                    "extraction_source": row.get("extraction_source"),
+                    "confidence": row.get("confidence"),
+                }
+            )
+        if pd.isna(row.get("wholesale_price")) or pd.isna(row.get("retail_price")):
+            qa_rows.append(
+                {
+                    "slide_number": row.get("slide_number"),
+                    "style_color_key": row.get("style_color_key"),
+                    "issue_type": "missing_price",
+                    "message": "Product/style-color detected but wholesale or retail price is missing.",
+                    "extraction_source": row.get("extraction_source"),
+                    "confidence": row.get("confidence"),
+                }
+            )
+        if row.get("slash_color_expanded"):
+            qa_rows.append(
+                {
+                    "slide_number": row.get("slide_number"),
+                    "style_color_key": row.get("style_color_key"),
+                    "issue_type": "slash_color_expanded",
+                    "message": f"Expanded slash color from {row.get('original_raw_code')}.",
+                    "extraction_source": row.get("extraction_source"),
+                    "confidence": row.get("confidence"),
+                }
+            )
+        if str(row.get("confidence", "")).lower() == "low":
+            qa_rows.append(
+                {
+                    "slide_number": row.get("slide_number"),
+                    "style_color_key": row.get("style_color_key"),
+                    "issue_type": "low_confidence",
+                    "message": "Spatial parser produced a low-confidence row.",
+                    "extraction_source": row.get("extraction_source"),
+                    "confidence": row.get("confidence"),
+                }
+            )
+
+    extracted_keys = set(raw_style_color_df["style_color_key"]) if not raw_style_color_df.empty else set()
+
+    for _, row in raw_slide_text_df.iterrows():
+        qa_rows.extend(
+            {
+                "slide_number": row["slide_number"],
+                "style_color_key": "",
+                "issue_type": "unsupported_or_ambiguous_line",
+                "message": line,
+                "extraction_source": "raw_slide_text",
+                "confidence": "low",
+            }
+            for line in str(row.get("slide_text", "")).splitlines()
+            if (STYLE_COLOR_RE.search(line) or ACCESSORY_STYLE_COLOR_RE.search(line))
+            and not any(code["style_color_key"] in extracted_keys for code in expand_standard_style_color_tokens(line))
+            and not any(code.upper() in extracted_keys for code in ACCESSORY_STYLE_COLOR_RE.findall(line))
+        )
+
+    qa_issues_df = pd.DataFrame(qa_rows)
+    raw_extract_df = raw_style_color_df if not raw_style_color_df.empty else raw_extract_df
+
+    return products_df, style_color_df, raw_extract_df, qa_issues_df
 
 
 # -----------------------------

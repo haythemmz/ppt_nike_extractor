@@ -9,8 +9,12 @@ try:
         has_accessory_style_color,
         build_style_color_key,
         build_image_name,
+        expand_standard_style_color_tokens,
+        is_valid_style_color_key,
+        parse_detail_style_line,
         extract_colors_from_style_color_tokens,
         detect_slide_category,
+        accessory_slide_product_name,
         get_accessory_price_context,
         extract_prices,
         extract_products_from_pptx,
@@ -48,10 +52,55 @@ try:
     assert colors == ["100"], f"Style-color token color extraction failed: {colors}"
     print(f"✓ Grid style-color token color: {colors[0]}")
 
+    slash_codes = expand_standard_style_color_tokens("IR5946-010/676")
+    slash_keys = [row["style_color_key"] for row in slash_codes]
+    assert slash_keys == ["IR5946-010", "IR5946-676"], f"Slash color expansion failed: {slash_keys}"
+    print(f"Slash color expansion: {slash_keys}")
+
+    assert is_valid_style_color_key("IR5946-010"), "Standard style-color validation failed"
+    assert is_valid_style_color_key("N.101.4771.320"), "Accessory style-color validation failed"
+    assert not is_valid_style_color_key("RETAIL"), "Invalid style-color validation failed"
+    assert not is_valid_style_color_key("RETAIL-010"), "Fake RETAIL style-color validation failed"
+    print("Strict style-color validation works")
+
+    detail = parse_detail_style_line("IZ4772 | $65.00 WHOLESALE | $130.00 RETAIL | NEW")
+    assert detail and detail["style"] == "IZ4772", f"Detail style line failed: {detail}"
+    assert parse_detail_style_line("RETAIL | $65.00 WHOLESALE | $130.00 RETAIL | NEW") is None
+    print("Strict detail style line parsing works")
+
+    from extractor import is_likely_product_name
+    assert is_likely_product_name("W NK AF TP SS POLO"), "Real apparel product name was rejected"
+    assert not is_likely_product_name("Top stitched self-collar"), "Feature text accepted as product name"
+    assert not is_likely_product_name("Utility webbing conveniently holds your accessories"), "Bag feature text accepted as product name"
+    assert not is_likely_product_name("90% Polyester"), "Material text accepted as product name"
+    assert not is_likely_product_name("NIKE Global Sports Apparel"), "Deck header accepted as product name"
+    assert is_likely_product_name("NIKE AIR HYBRID 2 GB"), "Nike bag product name was rejected"
+    print("Feature/material text is rejected as product name")
+
     category = detect_slide_category(["NIKE Global Sports Apparel", "WOMEN'S APPAREL", "Keep it Tight."])
     assert category == "Women's Apparel", f"Category detection failed: {category}"
     print(f"✓ Category detection: {category}")
-    
+    bag_category = detect_slide_category(["NIKE Global Sports Apparel", "BAGS", "Keep it Tight."])
+    assert bag_category == "Bags", f"Bag category detection failed: {bag_category}"
+    print(f"Bag category detection: {bag_category}")
+
+    false_bag_category = detect_slide_category(["W NK DF PANT DRAWSTRING", "IR4565 | $70.00 WHOLESALE | $140.00 RETAIL"])
+    assert false_bag_category is None, f"Product name misclassified as category: {false_bag_category}"
+    print("Drawstring pant product name does not reset category")
+
+    primary_bag_name = accessory_slide_product_name([
+        "NIKE Global Sports Apparel",
+        "BAGS",
+        "STANDBAGS",
+        "NIKE AIR SPORT 2 ALP GB",
+        "NIKE AIR SPORT 2 ALP GB",
+        "N.101.4771.320",
+        "NIKE AIR HYBRID 2 GB",
+        "N.100.3478.091",
+    ])
+    assert primary_bag_name == "NIKE AIR SPORT 2 ALP GB", f"Primary bag title failed: {primary_bag_name}"
+    print(f"Primary bag title: {primary_bag_name}")
+
     # Test price extraction with aggressive mode
     print("\n--- Testing price extraction ---")
     

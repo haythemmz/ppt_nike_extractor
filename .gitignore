@@ -1,9 +1,57 @@
-.venv/
+# Python
 __pycache__/
-*.pyc
-*.pptx
-*.xlsx
-*.csv
-*_images/
+*.py[cod]
+*$py.class
+.python-version
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment and local config
 .env
+.env.*
+!.env.example
+
+# Streamlit / local editor noise
+.streamlit/secrets.toml
+.vscode/
+.idea/
+
+# OS files
 .DS_Store
+Thumbs.db
+desktop.ini
+
+# Test / coverage / cache output
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Generated exports and local Nike data
+*_export.csv
+*.csv
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+*.zip
+logs-*.txt
+
+# Extracted image/output folders
+*_images/
+images_raw/
+images_clean/
+ppt_extract_output/
+output/
+exports/
+downloads/
+
+# Keep source and deployment files trackable
+!requirements.txt
+!.streamlit/
+!.streamlit/config.toml

@@ -7,6 +7,8 @@ import streamlit as st
 
 from extractor import extract_products_from_pptx
 
+MAX_UPLOAD_MB = 150
+
 
 def find_column(columns: list[str], candidates: list[str]) -> str | None:
     normalized = {str(column).strip().lower(): column for column in columns}
@@ -130,6 +132,9 @@ def filter_dataframe(df: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
         ("style_code", "Style code"),
         ("style_codes", "Style code"),
         ("style_color_key", "Style-color code"),
+        ("extraction_source", "Source"),
+        ("confidence", "Confidence"),
+        ("issue_type", "Issue"),
     ]
 
     available_filters = [
@@ -175,7 +180,15 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    st.success(f"Selected file: {uploaded_file.name}")
+    file_size_mb = uploaded_file.size / (1024 * 1024)
+    st.success(f"Selected file: {uploaded_file.name} ({file_size_mb:.1f} MB)")
+
+    if file_size_mb > MAX_UPLOAD_MB:
+        st.error(
+            f"This demo version supports files up to {MAX_UPLOAD_MB} MB. "
+            "For larger Nike decks, please use the internal Fabric/Power Apps workflow or an internal deployment."
+        )
+        st.stop()
 
     if st.button("Extract and preview Excel"):
         with st.spinner("Processing PowerPoint... Please wait."):
@@ -187,20 +200,22 @@ if uploaded_file is not None:
                 with open(pptx_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
 
-                products, style_colors, raw_text = extract_products_from_pptx(pptx_path)
+                products, style_colors, raw_extract, qa_issues = extract_products_from_pptx(pptx_path)
 
                 excel_buffer = io.BytesIO()
 
                 with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
                     products.to_excel(writer, sheet_name="Products", index=False)
                     style_colors.to_excel(writer, sheet_name="Style_Colors", index=False)
-                    raw_text.to_excel(writer, sheet_name="Raw_Slide_Text", index=False)
+                    raw_extract.to_excel(writer, sheet_name="Raw_Extract", index=False)
+                    qa_issues.to_excel(writer, sheet_name="QA_Issues", index=False)
 
                 excel_buffer.seek(0)
 
                 st.session_state["products"] = products
                 st.session_state["style_colors"] = style_colors
-                st.session_state["raw_text"] = raw_text
+                st.session_state["raw_extract"] = raw_extract
+                st.session_state["qa_issues"] = qa_issues
                 st.session_state["excel_bytes"] = excel_buffer.getvalue()
                 st.session_state["output_file_name"] = (
                     Path(uploaded_file.name).stem + "_extracted.xlsx"
@@ -211,23 +226,26 @@ if uploaded_file is not None:
 if "products" in st.session_state:
     products = st.session_state["products"]
     style_colors = st.session_state["style_colors"]
-    raw_text = st.session_state["raw_text"]
+    raw_extract = st.session_state.get("raw_extract", pd.DataFrame())
+    qa_issues = st.session_state.get("qa_issues", pd.DataFrame())
 
     st.subheader("Extraction summary")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
     col1.metric("Products", len(products))
     col2.metric("Style-color rows", len(style_colors))
-    col3.metric("Raw slide rows", len(raw_text))
+    col3.metric("Raw extract rows", len(raw_extract))
+    col4.metric("QA warnings", len(qa_issues))
 
     st.subheader("Excel preview")
 
-    tab1, tab2, tab3 = st.tabs(
+    tab1, tab2, tab3, tab4 = st.tabs(
         [
             "Products",
             "Style Colors",
-            "Raw Slide Text",
+            "Raw Extract",
+            "QA Issues",
         ]
     )
 
@@ -248,9 +266,17 @@ if "products" in st.session_state:
         )
 
     with tab3:
-        raw_text_view = filter_dataframe(raw_text, "raw_text")
+        raw_text_view = filter_dataframe(raw_extract, "raw_extract")
         st.dataframe(
             raw_text_view,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    with tab4:
+        qa_issues_view = filter_dataframe(qa_issues, "qa_issues")
+        st.dataframe(
+            qa_issues_view,
             use_container_width=True,
             hide_index=True,
         )
